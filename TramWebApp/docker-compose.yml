@@ -1,0 +1,88 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: tramwebapp-db
+    environment:
+      POSTGRES_DB: tramwebapp
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d tramwebapp"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - tramwebapp-network
+
+  pgadmin:
+    image: dpage/pgadmin4:8
+    container_name: tramwebapp-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@tramwebapp.local
+      PGADMIN_DEFAULT_PASSWORD: admin123
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    depends_on:
+      - db
+    networks:
+      - tramwebapp-network
+
+  api:
+    build:
+      context: .
+      dockerfile: src/TramWebApp.Api/Dockerfile
+    container_name: tramwebapp-api
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: "http://+:8080"
+      StorageMode: "PostgreSQL"
+      ConnectionStrings__DefaultConnection: "Host=db;Port=5432;Database=tramwebapp;Username=postgres;Password=postgres"
+      JwtSettings__SecretKey: "TramWebAppSecretKeyForDevelopmentOnlyChangeInProduction12345678901234567890"
+      JwtSettings__Issuer: "TramWebApp"
+      JwtSettings__Audience: "TramWebAppUsers"
+      JwtSettings__ExpiryMinutes: "60"
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - tramwebapp-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: tramwebapp-frontend
+    environment:
+      VITE_API_URL: "http://localhost:8080"
+    ports:
+      - "80:80"
+    depends_on:
+      - api
+    networks:
+      - tramwebapp-network
+
+volumes:
+  postgres_data:
+  pgadmin_data:
+
+networks:
+  tramwebapp-network:
+    driver: bridge
