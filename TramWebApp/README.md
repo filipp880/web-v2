@@ -1,162 +1,254 @@
-# TramWebApp - Система мониторинга трамвая
+# TramWebApp
 
-Проверенные команды запуска и диагностики: [RUNNING.ru.md](RUNNING.ru.md).
-Сопоставление с заданиями ЛР2, ЛР3 и ЛР4, исправления и сценарий сдачи: [LABS-COMPLIANCE.ru.md](LABS-COMPLIANCE.ru.md).
+Учебное веб-приложение для работы с прогонами трамвая: просмотр телеметрии, оценка скорости и пройденного пути, воспроизведение записей и ручной тренажёр движения. Backend написан на ASP.NET Core, отдельный клиент — на React и TypeScript.
 
-Веб-приложение для оценки продольной скорости и положения трамвая без GNSS и IMU, используя только положение ручки контроллера водителя и скорости передней/задней тележек.
+Приложение поддерживает два режима: PostgreSQL с сохранением данных для ЛР3–ЛР4 и хранение в памяти с лимитом 50 прогонов для ЛР2.
 
-## 🚀 Быстрый запуск
+**Модель оценки скорости демонстрационная (`1.0.0-mock`).** Файл `ml_model.yaml` не подключён к .NET-сервису. Тренажёр использует отдельную учебную динамику с инерцией и зимним сцеплением; её параметры не калиброваны по реальному вагону.
 
-### Через Docker Compose (рекомендуется)
+## Запуск с PostgreSQL
 
-```bash
-# Клонирование и запуск
+Нужны Git и запущенный Docker Desktop с Linux-контейнерами. Локальная установка .NET, Node.js и PostgreSQL для этого способа не требуется.
+
+```powershell
 git clone https://github.com/filipp880/web-v2.git
 cd web-v2/TramWebApp
 docker compose up --build -d
+docker compose ps
 ```
 
-Приложение будет доступно по адресам:
-- **Frontend**: http://localhost
-- **Backend API**: http://localhost:8080
-- **Swagger UI**: http://localhost:8080/swagger
-- **pgAdmin**: http://localhost:5050 (admin@example.com / admin123)
+При первом запуске создаётся база, применяются миграции и добавляются демонстрационные данные. Дождитесь завершения сборки и состояния `healthy` у API и БД.
 
-### Локальная разработка
+| Сервис | Адрес |
+|---|---|
+| Приложение | http://localhost |
+| Swagger UI | http://localhost/swagger/index.html |
+| Backend API | http://localhost:8080/api |
+| Проверка API и БД | http://localhost:8080/health |
+| pgAdmin | http://localhost:5050 |
 
-#### Backend (.NET 8)
-```bash
-cd src/TramWebApp.Api
-dotnet restore
-dotnet run
+### Демо-аккаунты
+
+| Роль | Логин | Пароль | Доступ |
+|---|---|---|---|
+| Администратор | `admin` | `admin123` | Все прогоны, редактирование и удаление |
+| Пользователь | `operator` | `user123` | Собственные прогоны, телеметрия и результаты |
+
+Для знакомства войдите как `admin`: исходные демонстрационные прогоны принадлежат администратору. Новые зарегистрированные пользователи получают роль `User`.
+
+## Что можно делать
+
+- Создавать, просматривать и редактировать прогоны; администратор может удалять их вместе с телеметрией и результатами.
+- Искать прогоны и просматривать подробности, таблицы телеметрии и историю с пагинацией.
+- Переключать шаги записи, запускать воспроизведение, менять его скорость, ставить на паузу и сбрасывать.
+- Сравнивать оценки скорости и пути с показаниями датчиков на графиках.
+- Редактировать сигналы отдельных шагов, пересчитывать сценарий, сохранять результат и корректировку оператора.
+- Управлять движением в тренажёре: тяга, выбег, плавное торможение, зимнее сцепление и автоматическая запись шагов на сервере.
+- Смотреть маршрут и положение трамвая на схеме или автономной карте без API-ключа.
+
+### Воспроизведение и редактор сигналов
+
+Откройте прогон → **«Запустить модель»**. Ползунок и стрелки переключают точки телеметрии. Отсутствующий GPS показывается как пропуск сигнала и не прерывает просмотр.
+
+Панель **«Редактор записанных сигналов»** изменяет входные значения выбранного шага. Правки сохраняются при перемотке внутри открытой страницы; исходная телеметрия не перезаписывается. Есть отмена изменений одного шага и всего сценария. Несохранённые правки исчезают после перезагрузки страницы.
+
+Просмотр и перемотка не создают записи в истории. Для записи нажмите **«Сохранить результат»**. Уточнённые скорость и путь можно внести в **«Корректировке оператора»**.
+
+### Тренажёр движения
+
+Откройте демонстрационный прогон с маршрутом → **«Управлять трамваем»**.
+
+1. Задайте начальную скорость и выберите зимние или сухие рельсы.
+2. Нажмите **«Создать прогон»** — появится отдельная запись, исходный прогон останется прежним.
+3. Нажмите **«Продолжить движение»** и перемещайте ручку мышью, касанием или стрелками клавиатуры.
+
+| Ручка | Действие |
+|---|---|
+| `+1` | Тяга и постепенный разгон |
+| `0` | Выбег с сопротивлением движению |
+| `−1` | Плавное торможение |
+
+Ручка удерживает команду между шагами. Зимой сцепление ограничивает разгон и торможение сильнее. На паузе можно выполнить один шаг кнопкой **«Шаг +1 с»**.
+
+Каждый подтверждённый шаг записывает телеметрию и результат. Таблица показывает данные, прочитанные с сервера. Повтор запроса не создаёт дубликат. После перезагрузки восстанавливаются сохранённые скорость, путь и ручка, а движение остаётся на паузе.
+
+### Схема и карта
+
+По умолчанию показана схема со стартом, финишем, пройденной частью пути и значком трамвая. Кнопка **«Карта»** включает географическую подложку.
+
+В сборку включены локальные геоданные района Москвы. Ключ и внешние запросы для обычного запуска не нужны. Вне включённого района доступна схема заданного маршрута; приложение не выполняет поиск маршрутов по всей России. Демонстрационная геометрия следует трамвайным рельсам, а не прямым между редкими GPS-точками.
+
+Источник данных — OpenStreetMap, лицензия ODbL. Подробнее: [геоданные и воспроизводимость](frontend/public/maps/README.md).
+
+## Где хранятся данные
+
+В основном режиме пользователи, прогоны, телеметрия и результаты хранятся в PostgreSQL. Файлы БД находятся в Docker volume `tramwebapp_postgres_data`, а не в исходниках проекта.
+
+| Параметр | С компьютера | Из pgAdmin / Docker-сети |
+|---|---|---|
+| Хост | `localhost` | `db` |
+| Порт | `5433` | `5432` |
+| База | `tramwebapp` | `tramwebapp` |
+| Пользователь / пароль | `postgres` / `postgres` | `postgres` / `postgres` |
+
+В pgAdmin подготовлено подключение **TramWebApp PostgreSQL**. Раскройте `Databases → tramwebapp → Schemas → public → Tables`; пароль подключения — `postgres`.
+
+При первой инициализации создаются два пользователя, три прогона и 750 точек телеметрии всего: 300 для кольцевого сценария, 250 для радиального и 200 для городского центра. Существующая база при повторном запуске не сбрасывается; удалённые пользователем прогоны автоматически не восстанавливаются.
+
+## Отдельный режим ЛР2 без PostgreSQL
+
+Из каталога `TramWebApp`:
+
+```powershell
+docker compose -p tramwebapp-lab2 -f docker-compose.lab2.yml up --build -d
 ```
 
-#### Frontend (React + Vite)
-```bash
+| Сервис | Адрес |
+|---|---|
+| React-клиент ЛР2 | http://localhost:8082 |
+| API ЛР2 | http://localhost:8081/api |
+| Swagger ЛР2 | http://localhost:8081/swagger/index.html |
+
+Этот стек запускает только API и frontend. Хранилище допускает до 50 прогонов; попытка создать 51-й возвращает HTTP 409. Данные исчезают при перезапуске API. В интерфейсе показано предупреждение о временном хранении. Основной стек с PostgreSQL может работать одновременно.
+
+## Генерация тестового набора
+
+Из каталога `TramWebApp`, при запущенном основном приложении:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\generate-test-data.ps1 -Runs 2 -Steps 25
+```
+
+Скрипт создаёт отдельные учебные прогоны с маршрутами, телеметрией и результатами через API и печатает ссылки на них. Параметр `-RandomSeed` управляет воспроизводимостью, `-Cleanup` удаляет только записи текущего запуска.
+
+Для режима ЛР2 добавьте `-BaseUrl http://localhost:8082`. Генератор работает под администратором по умолчанию; параметры `-Username` и `-Password` позволяют использовать другой аккаунт с доступным маршрутом.
+
+## Архитектура
+
+```text
+TramWebApp/
+├── src/
+│   ├── TramWebApp.Domain/          Сущности, динамика, интерфейсы репозиториев
+│   ├── TramWebApp.Application/     Сценарии приложения, DTO, проверки доступа
+│   ├── TramWebApp.Infrastructure/  EF Core, репозитории, миграции, seed
+│   └── TramWebApp.Api/             HTTP-контроллеры, JWT, валидация, Swagger
+├── frontend/                      React, TypeScript, графики, схема и карта
+├── scripts/                       Генерация тестовых данных и геоданных
+├── docker-compose.yml             PostgreSQL, API, frontend, pgAdmin
+├── docker-compose.lab2.yml         API и frontend с хранением в памяти
+└── smoke-test.ps1                  Интеграционная проверка API
+```
+
+Контроллеры вызывают сценарии Application через интерфейсы; операции с БД выполняются в репозиториях Infrastructure. Domain и Application не зависят от EF Core. Реализации хранилищ выбираются через DI.
+
+Стек: .NET 8, ASP.NET Core, EF Core 8, PostgreSQL 16, JWT и BCrypt; React 18, TypeScript, Vite, Axios, Chart.js, Leaflet и обычный CSS. Браузерные проверки — Playwright.
+
+## API
+
+Полный перечень методов, схемы и ответы находятся в [Swagger](http://localhost/swagger/index.html). Для защищённых запросов выполните `POST /api/auth/login` и вставьте `accessToken` в **Authorize** без префикса `Bearer`.
+
+| Группа | Методы |
+|---|---|
+| Авторизация | `POST /api/auth/login`, `POST /api/auth/register`, `GET /api/auth/me` |
+| Прогоны | `GET`, `POST /api/tram-runs`; `GET`, `PUT`, `DELETE /api/tram-runs/{id}` |
+| Телеметрия | `GET`, `POST /api/tram-runs/{id}/telemetry`; `GET .../telemetry/{sequenceNumber}`; `POST .../telemetry/batch` |
+| Расчёт | `POST /api/model/predict`, `POST /api/model/predict/batch`, `POST /api/model/metrics` |
+| История | `POST /api/model/inference`; `GET /api/model/inferences/run/{runId}`, `GET /api/model/inferences/user/me`, `GET /api/model/inferences/{id}` |
+| Корректировка | `PUT /api/model/inferences/{id}/intervene`, `PUT /api/model/inferences/{id}/actual` |
+| Тренажёр | `POST /api/simulation/{sourceId}/start`, `POST /api/simulation/{id}/step` |
+| Состояние | `GET /api/model/status`, `GET /api/system/storage`, `GET /health` |
+
+Без JWT защищённые методы возвращают 401. Доступ к чужим прогонам и связанным данным запрещён пользователю; администратор имеет доступ ко всем. Удаление прогонов и установка эталонных значений доступны только администратору.
+
+## Проверки
+
+API, из каталога `TramWebApp`:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\smoke-test.ps1
+```
+
+Браузерные проверки, при запущенном Docker-стеке:
+
+```powershell
 cd frontend
-npm install
+npm ci
+npx playwright install chromium
+$env:TEST_BASE_URL = 'http://localhost'
+Remove-Item Env:TEST_STORAGE_MODE -ErrorAction SilentlyContinue
+npx playwright test
+```
+
+Для отдельного режима ЛР2:
+
+```powershell
+$env:TEST_BASE_URL = 'http://localhost:8082'
+$env:TEST_STORAGE_MODE = 'InMemory'
+npx playwright test
+```
+
+Проверяются CRUD, роли, Swagger, все 200 шагов городского прогона, пропуски GPS, ручные изменения, сохранение, динамика торможения, восстановление после перезагрузки, адаптивная верстка и лимит памяти. Проверки сохранения добавляют результаты в историю демонстрационного прогона; временные прогоны удаляются.
+
+Проверка сборки:
+
+```powershell
+# Из TramWebApp:
+dotnet build TramWebApp.sln
+
+# Из TramWebApp/frontend:
+npm run build
+npm run lint
+```
+
+## Локальная разработка
+
+Нужны .NET 8 SDK и Node.js 20 или новее. Для разработки без PostgreSQL откройте два окна PowerShell.
+
+Backend, из `TramWebApp`:
+
+```powershell
+$env:ASPNETCORE_ENVIRONMENT = 'Development'
+$env:StorageMode = 'InMemory'
+dotnet run --project src/TramWebApp.Api --urls http://localhost:8080
+```
+
+Frontend, из `TramWebApp/frontend`:
+
+```powershell
+npm ci
 npm run dev
 ```
 
-## 🏗 Архитектура
+Клиент откроется на http://localhost:5173. Vite перенаправляет `/api` и `/swagger` на API по адресу `localhost:8080`. Перед запуском освободите этот порт, если основной Docker API уже работает.
 
-```
-TramWebApp/
-├── src/
-│   ├── TramWebApp.Domain/        # Доменные сущности, VO, интерфейсы
-│   ├── TramWebApp.Application/   # DTO, UseCases, Validators, Mappings
-│   ├── TramWebApp.Infrastructure/# EF Core, Repositories, Model Service, Auth
-│   └── TramWebApp.Api/           # Controllers, Middleware, Swagger
-├── frontend/                     # React 18 + TypeScript + Vite
-├── docker-compose.yml
-└── README.md
+В режиме PostgreSQL миграции применяются автоматически при старте. Для создания новой миграции:
+
+```powershell
+dotnet tool restore
+$env:StorageMode = 'PostgreSQL'
+dotnet ef migrations add MigrationName --project src/TramWebApp.Infrastructure --startup-project src/TramWebApp.Api
 ```
 
-### Стек технологий
+## Остановка и диагностика
 
-**Backend:**
-- .NET 8 / ASP.NET Core Web API
-- Clean Architecture (Onion)
-- Entity Framework Core + PostgreSQL
-- JWT Authentication + Role-based Authorization
-- Swagger/OpenAPI
-- InMemory / PostgreSQL переключаемое хранилище
-
-**Frontend:**
-- React 18 + TypeScript + Vite
-- React Router v6
-- Chart.js (графики)
-- Leaflet (карты, опционально)
-- CSS Modules / Custom CSS
-
-**DevOps:**
-- Docker / Docker Compose
-- PostgreSQL 16
-- pgAdmin 4
-
-## 🎯 Функциональность
-
-### Основные возможности
-1. **Управление прогонами** - CRUD для тестовых прогонов трамвая
-2. **Телеметрия** - загрузка и просмотр данных с датчиков (ручка контроллера, скорости тележек, GPS)
-3. **Модель ML** - инференс модели оценки скорости/положения в реальном времени
-4. **Интерактивная визуализация** - графики скорости/положения, 2D карта трассы
-5. **Вмешательство оператора** - корректировка предсказаний модели вручную
-6. **История инференсов** - просмотр всех запусков модели с метриками ошибок
-7. **Аутентификация/Авторизация** - JWT, роли Admin/User
-
-### API Endpoints
-
-| Метод | Путь | Описание |
-|-------|------|----------|
-| POST | `/api/auth/login` | Вход в систему |
-| POST | `/api/auth/register` | Регистрация |
-| GET | `/api/auth/me` | Профиль пользователя |
-| GET | `/api/tram-runs` | Список прогонов |
-| POST | `/api/tram-runs` | Создать прогон |
-| GET | `/api/tram-runs/{id}` | Детали прогона |
-| PUT | `/api/tram-runs/{id}` | Обновить прогон |
-| DELETE | `/api/tram-runs/{id}` | Удалить прогон (Admin) |
-| GET | `/api/tram-runs/{id}/telemetry` | Телеметрия прогона |
-| POST | `/api/model/predict` | Предсказание модели |
-| POST | `/api/model/inference` | Запуск инференса |
-| PUT | `/api/model/inferences/{id}/intervene` | Вмешательство пользователя |
-| GET | `/api/model/inferences/{runId}` | История инференсов |
-
-## 🔐 Демо-аккаунты
-
-| Роль | Логин | Пароль |
-|------|-------|--------|
-| Admin | `admin` | `admin123` |
-| User | `operator` | `user123` |
-
-## 📊 Тестовые данные
-
-При первом запуске автоматически создаются:
-- 3 тестовых прогона (кольцевая линия, радиальный маршрут, городской центр)
-- ~750 точек телеметрии на прогон
-- Инференсы модели с реалистичными метриками
-- Пользователи admin/operator
-
-## 🛠 Разработка
-
-### Структура базы данных
-
-```sql
--- Основные таблицы
-tram_runs              -- Прогоны трамвая
-tram_telemetry_points  -- Точки телеметрии (ручка, скорости тележек, GPS)
-model_inferences       -- Результаты работы модели
-users                  -- Пользователи системы
+```powershell
+docker compose logs --tail 100 api frontend
+docker compose stop
+docker compose start
 ```
 
-### Миграции
+После изменения исходников выполните `docker compose up --build -d`. Команда `docker compose down` сохраняет PostgreSQL volume; `docker compose down -v` удаляет данные.
 
-```bash
-# Создание миграции
-dotnet ef migrations add <Name> -p src/TramWebApp.Infrastructure -s src/TramWebApp.Api
+Для остановки отдельного стека ЛР2:
 
-# Применение миграций
-dotnet ef database update -p src/TramWebApp.Infrastructure -s src/TramWebApp.Api
+```powershell
+docker compose -p tramwebapp-lab2 -f docker-compose.lab2.yml down
 ```
 
-### Переменные окружения
+Если порт PostgreSQL 5433 занят, перед основным запуском задайте `$env:POSTGRES_PORT = '5434'`.
 
-| Переменная | Описание | По умолчанию |
-|------------|----------|--------------|
-| `StorageMode` | `InMemory` или `PostgreSQL` | `PostgreSQL` |
-| `ConnectionStrings__DefaultConnection` | Строка подключения к БД | - |
-| `JwtSettings__SecretKey` | Секретный ключ JWT | - |
-| `JwtSettings__Issuer` | Издатель токена | `TramWebApp` |
-| `JwtSettings__Audience` | Аудитория токена | `TramWebAppUsers` |
-| `JwtSettings__ExpiryMinutes` | Время жизни токена | `60` |
+## Дополнительные материалы
 
-## 📝 Лицензия
-
-MIT License - учебный проект для лабораторных работ 2, 3, 4.
-
-## 🤝 Авторы
-
-- **Backend**: Clean Architecture, .NET 8, EF Core
-- **Frontend**: React 18, TypeScript, Vite
-- **ML Model**: Mock-реализация (готова к замене на ONNX/Python)
+- [Подробная инструкция запуска](RUNNING.ru.md)
+- [Соответствие заданиям ЛР2–ЛР4 и сценарий сдачи](LABS-COMPLIANCE.ru.md)
+- [Источник и лицензия геоданных](frontend/public/maps/README.md)
