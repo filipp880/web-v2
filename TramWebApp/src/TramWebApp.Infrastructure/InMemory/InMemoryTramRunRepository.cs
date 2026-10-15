@@ -11,6 +11,7 @@ public class InMemoryTramRunRepository : ITramRunRepository
     private readonly ConcurrentDictionary<Guid, TramRun> _runs = new();
     private readonly int _maxRecords;
     private readonly object _lock = new();
+    public Func<Guid, Task>? DeleteChildren { get; set; }
 
     public InMemoryTramRunRepository(int maxRecords = 50)
     {
@@ -51,10 +52,10 @@ public class InMemoryTramRunRepository : ITramRunRepository
         return Task.FromResult(tramRun);
     }
 
-    public Task DeleteAsync(Guid id, CancellationToken cancellationToken = default)
+    public async Task DeleteAsync(Guid id, CancellationToken cancellationToken = default)
     {
+        if (DeleteChildren != null) await DeleteChildren(id);
         _runs.TryRemove(id, out _);
-        return Task.CompletedTask;
     }
 
     public Task<int> GetCountAsync(CancellationToken cancellationToken = default)

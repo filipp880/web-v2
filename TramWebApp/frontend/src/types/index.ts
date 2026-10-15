@@ -1,6 +1,7 @@
 // src/types/index.ts
 
 export interface TramRun {
+  plannedRoute?: [number, number][];
   id: string;
   name: string;
   description: string;
@@ -19,6 +20,7 @@ export interface TramRunListItem {
   createdAt: string;
   isActive: boolean;
   telemetryPointsCount: number;
+  inferencesCount: number;
 }
 
 export interface CreateTramRunDto {
@@ -32,6 +34,7 @@ export interface UpdateTramRunDto {
 }
 
 export interface TramTelemetryPoint {
+  distanceMeters?: number | null;
   id: string;
   tramRunId: string;
   sequenceNumber: number;
@@ -109,6 +112,7 @@ export interface ModelInferenceListItem {
 }
 
 export interface InferenceRequest {
+  scenarioInputs?: ModelInput[];
   tramRunId: string;
   sequenceNumber: number;
   input: ModelInput;

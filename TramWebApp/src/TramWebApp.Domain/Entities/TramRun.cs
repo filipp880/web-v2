@@ -9,6 +9,9 @@ public class TramRun
     public DateTime? UpdatedAt { get; private set; }
     public Guid CreatedByUserId { get; private set; }
     public bool IsActive { get; private set; }
+    public string PlannedRouteJson { get; private set; } = "[]";
+    public double[][] PlannedRoute => System.Text.Json.JsonSerializer.Deserialize<double[][]>(PlannedRouteJson) ?? [];
+    public void SetPlannedRoute(double[][] coordinates) => PlannedRouteJson = System.Text.Json.JsonSerializer.Serialize(coordinates);
     
     public ICollection<TramTelemetryPoint> TelemetryPoints { get; private set; } = new List<TramTelemetryPoint>();
     public ICollection<ModelInference> Inferences { get; private set; } = new List<ModelInference>();

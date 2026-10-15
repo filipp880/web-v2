@@ -12,10 +12,18 @@ public class TramTelemetryPoint
     public double? GpsLatitude { get; private set; }
     public double? GpsLongitude { get; private set; }
     public double? GpsSpeed { get; private set; }
+    public double? DistanceMeters { get; private set; }
+    public void SetDistance(double distance) => DistanceMeters = distance;
     
     public TramRun TramRun { get; private set; } = null!;
 
     private TramTelemetryPoint() { }
+    public void UpdateGps(double? latitude, double? longitude, double? speed)
+    {
+        GpsLatitude = latitude;
+        GpsLongitude = longitude;
+        GpsSpeed = speed;
+    }
 
     public TramTelemetryPoint(
         Guid tramRunId,

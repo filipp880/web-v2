@@ -9,6 +9,7 @@ import { RegisterPage } from './pages/RegisterPage';
 import { RunsListPage } from './pages/RunsListPage';
 import { RunDetailPage } from './pages/RunDetailPage';
 import { ModelPage } from './pages/ModelPage';
+import { DrivePage } from './pages/DrivePage';
 import { HistoryPage } from './pages/HistoryPage';
 import { useAuth } from './contexts/AuthContext';
 
@@ -63,6 +64,7 @@ function App() {
           <Route path="/runs" element={<RunsListPage />} />
           <Route path="/runs/:id" element={<RunDetailPage />} />
           <Route path="/runs/:id/model" element={<ModelPage />} />
+          <Route path="/runs/:id/drive" element={<DrivePage />} />
           <Route path="/history" element={<HistoryPage />} />
         </Route>
         

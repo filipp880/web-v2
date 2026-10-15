@@ -56,7 +56,7 @@ public class ModelController : ControllerBase
         return CreatedAtAction(nameof(GetInference), new { id = inference.Id }, inference);
     }
 
-    [HttpGet("inferences/{tramRunId:guid}")]
+    [HttpGet("inferences/run/{tramRunId:guid}")]
     [ProducesResponseType(typeof(IReadOnlyList<ModelInferenceListDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetInferencesByRun(Guid tramRunId, CancellationToken cancellationToken = default)

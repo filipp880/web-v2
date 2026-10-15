@@ -7,7 +7,7 @@ using TramWebApp.Application.Interfaces;
 using TramWebApp.Application.Common;
 
 [ApiController]
-[Route("api/[controller]")]
+[Route("api/tram-runs")]
 [Authorize]
 public class TramRunsController : ControllerBase
 {
@@ -77,7 +77,7 @@ public class TramRunsController : ControllerBase
         if (!isAdmin && run.CreatedByUserId != userId)
             return Forbid();
 
-        var updated = await _useCases.UpdateAsync(id, dto, userId, cancellationToken);
+        var updated = await _useCases.UpdateAsync(id, dto, run.CreatedByUserId, cancellationToken);
         return Ok(updated);
     }
 
@@ -88,7 +88,9 @@ public class TramRunsController : ControllerBase
     public async Task<IActionResult> Delete(Guid id, CancellationToken cancellationToken = default)
     {
         var userId = GetCurrentUserId();
-        await _useCases.DeleteAsync(id, userId, cancellationToken);
+        var run = await _useCases.GetByIdAsync(id, cancellationToken);
+        if (run == null) return NotFound();
+        await _useCases.DeleteAsync(id, run.CreatedByUserId, cancellationToken);
         return NoContent();
     }
 

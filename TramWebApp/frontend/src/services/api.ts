@@ -31,7 +31,7 @@ class ApiService {
     this.client.interceptors.response.use(
       (response) => response,
       (error) => {
-        if (error.response?.status === 401) {
+        if (error.response?.status === 401 && error.config?.url !== '/auth/login') {
           this.logout();
           window.location.href = '/login';
         }
@@ -110,6 +110,17 @@ class ApiService {
   }
 
   // Telemetry
+  async getStorageInfo(): Promise<{ mode: 'PostgreSQL' | 'InMemory'; runCapacity: number | null; persistent: boolean }> {
+    return (await this.client.get('/system/storage')).data;
+  }
+  async startSimulation(sourceId: string, initialSpeedKmh: number, winter: boolean, initialHandle = 0): Promise<{ runId: string }> {
+    return (await this.client.post('/simulation/' + sourceId + '/start', { initialSpeedKmh, winter, initialHandle })).data;
+  }
+
+  async simulationStep(id: string, handle: number, sequenceNumber: number): Promise<{ pointId: string; sequenceNumber: number; speed: number; distance: number; timestamp: number }> {
+    return (await this.client.post('/simulation/' + id + '/step', { handle, sequenceNumber })).data;
+  }
+
   async getTelemetry(tramRunId: string): Promise<import('../types').TramTelemetryPoint[]> {
     const response = await this.client.get<import('../types').TramTelemetryPoint[]>(`/tram-runs/${tramRunId}/telemetry`);
     return response.data;
@@ -152,7 +163,7 @@ class ApiService {
   }
 
   async getInferencesByRun(tramRunId: string): Promise<import('../types').ModelInferenceListItem[]> {
-    const response = await this.client.get<import('../types').ModelInferenceListItem[]>(`/model/inferences/${tramRunId}`);
+    const response = await this.client.get<import('../types').ModelInferenceListItem[]>(`/model/inferences/run/${tramRunId}`);
     return response.data;
   }
 

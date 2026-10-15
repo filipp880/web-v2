@@ -1,7 +1,7 @@
 // src/pages/RunsListPage.tsx
 
 import React, { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
 import { useApi } from '../hooks/useApi';
 import { Modal } from '../components/Modal';
@@ -16,6 +16,8 @@ export function RunsListPage() {
   const [editingRun, setEditingRun] = useState<TramRunListItem | null>(null);
   const [formData, setFormData] = useState<CreateTramRunDto>({ name: '', description: '' });
   const [formErrors, setFormErrors] = useState<Partial<CreateTramRunDto>>({});
+  const [search, setSearch] = useState('');
+  const filteredRuns = runs.filter(run => (run.name + ' ' + (run.description ?? '')).toLocaleLowerCase('ru').includes(search.toLocaleLowerCase('ru')));
 
   const { execute: loadRuns, loading: loadingRuns } = useApi(
     () => api.getTramRuns(),
@@ -32,7 +34,7 @@ export function RunsListPage() {
     { successMessage: 'Прогон обновлен', onSuccess: () => { closeModal(); loadRuns(); } }
   );
 
-  const { execute: deleteRun, loading: deleting } = useApi(
+  const { execute: deleteRun } = useApi(
     (id: string) => api.deleteTramRun(id),
     { successMessage: 'Прогон удален', onSuccess: loadRuns }
   );
@@ -105,6 +107,8 @@ export function RunsListPage() {
         </button>
       </div>
 
+      <div className="summary-grid"><div className="summary-card"><span>Прогонов</span><strong>{runs.length}</strong></div><div className="summary-card"><span>Точек телеметрии</span><strong>{runs.reduce((total, run) => total + run.telemetryPointsCount, 0).toLocaleString('ru-RU')}</strong></div><div className="summary-card"><span>Результатов модели</span><strong>{runs.reduce((total, run) => total + run.inferencesCount, 0).toLocaleString('ru-RU')}</strong></div></div>
+      {runs.length > 0 && <div className="list-toolbar"><input className="form-control" aria-label="Поиск прогонов" placeholder="Найти прогон по названию или описанию" value={search} onChange={event => setSearch(event.target.value)} /><span className="text-muted">Найдено: {filteredRuns.length}</span></div>}
       {loadingRuns && runs.length === 0 && (
         <div className="card">
           <div className="card-body" style={{ textAlign: 'center' }}>
@@ -148,7 +152,8 @@ export function RunsListPage() {
                 </tr>
               </thead>
               <tbody>
-                {runs.map(run => (
+                {filteredRuns.length === 0 && <tr><td colSpan={7} className="text-muted">По вашему запросу ничего не найдено.</td></tr>}
+                {filteredRuns.map(run => (
                   <tr key={run.id}>
                     <td>
                       <strong>{run.name}</strong>

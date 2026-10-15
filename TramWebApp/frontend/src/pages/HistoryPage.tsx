@@ -1,22 +1,24 @@
 // src/pages/HistoryPage.tsx
 
-import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
 import { api } from '../services/api';
 import { useApi } from '../hooks/useApi';
 import { Modal } from '../components/Modal';
 import type { ModelInferenceListItem, ModelInference } from '../types';
 import { format } from 'date-fns';
+import { ru } from 'date-fns/locale';
+import { useToast } from '../contexts/ToastContext';
 
 export function HistoryPage() {
-  const navigate = useNavigate();
+  const { showToast } = useToast();
+  const [page, setPage] = useState(0);
   const [inferences, setInferences] = useState<ModelInferenceListItem[]>([]);
   const [selectedInference, setSelectedInference] = useState<ModelInference | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
   const { execute: loadInferences, loading } = useApi(
     () => api.getMyInferences(),
-    { onSuccess: setInferences, errorMessage: 'Не удалось загрузить историю' }
+    { onSuccess: data => setInferences(data.sort((a, b) => Date.parse(b.inferenceTime) - Date.parse(a.inferenceTime))), errorMessage: 'Не удалось загрузить историю' }
   );
 
   useEffect(() => { loadInferences(); }, [loadInferences]);
@@ -27,17 +29,10 @@ export function HistoryPage() {
       setSelectedInference(inference);
       setIsModalOpen(true);
     } catch {
-      // error handled by api interceptor
+      showToast('error', 'Не удалось открыть результат. Попробуйте ещё раз.');
     }
   };
 
-  const getRoleBadge = (role: string) => {
-    switch (role) {
-      case 'Admin': return 'badge-warning';
-      case 'User': return 'badge-info';
-      default: return 'badge-secondary';
-    }
-  };
 
   return (
     <div>
@@ -85,11 +80,11 @@ export function HistoryPage() {
                 </tr>
               </thead>
               <tbody>
-                {inferences.map(inf => (
+                {inferences.slice(page * 25, page * 25 + 25).map(inf => (
                   <tr key={inf.id} style={{ backgroundColor: inf.isUserIntervention ? '#fff3cd' : '' }}>
                     <td className="font-mono" style={{ fontSize: '0.75rem' }}>{inf.id.slice(0, 8)}...</td>
                     <td>{inf.tramRunId.slice(0, 8)}...</td>
-                    <td>{format(new Date(inf.inferenceTime), 'PPpp', { locale: require('date-fns/locale/ru') })}</td>
+                    <td>{format(new Date(inf.inferenceTime), 'PPpp', { locale: ru })}</td>
                     <td>{inf.predictedSpeed.toFixed(2)} м/с</td>
                     <td>{inf.predictedPosition.toFixed(1)} м</td>
                     <td>{inf.errorSpeed?.toFixed(2) ?? '—'} м/с</td>
@@ -115,6 +110,7 @@ export function HistoryPage() {
               </tbody>
             </table>
           </div>
+          <div className="card-body pagination"><span>{page * 25 + 1}–{Math.min(inferences.length, page * 25 + 25)} из {inferences.length}</span><button className="btn btn-outline btn-sm" disabled={!page} onClick={() => setPage(value => value - 1)}>Назад</button><button className="btn btn-outline btn-sm" disabled={(page + 1) * 25 >= inferences.length} onClick={() => setPage(value => value + 1)}>Далее</button></div>
         </div>
       )}
 
@@ -137,7 +133,7 @@ export function HistoryPage() {
               </div>
               <div className="info-item">
                 <span className="info-label">Время</span>
-                <span className="info-value">{format(new Date(selectedInference.inferenceTime), 'PPpp', { locale: require('date-fns/locale/ru') })}</span>
+                <span className="info-value">{format(new Date(selectedInference.inferenceTime), 'PPpp', { locale: ru })}</span>
               </div>
               <div className="info-item">
                 <span className="info-label">Позиция ручки</span>

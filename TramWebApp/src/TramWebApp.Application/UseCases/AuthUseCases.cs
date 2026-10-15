@@ -13,12 +13,14 @@ public class AuthUseCases : IAuthUseCases
     private readonly IAuthService _authService;
     private readonly IUserRepository _userRepository;
     private readonly IMapper _mapper;
+    private readonly IPasswordHasher _passwordHasher;
 
-    public AuthUseCases(IAuthService authService, IUserRepository userRepository, IMapper mapper)
+    public AuthUseCases(IAuthService authService, IUserRepository userRepository, IMapper mapper, IPasswordHasher passwordHasher)
     {
         _authService = authService;
         _userRepository = userRepository;
         _mapper = mapper;
+        _passwordHasher = passwordHasher;
     }
 
     public async Task<LoginResponseDto?> LoginAsync(LoginDto dto, CancellationToken cancellationToken = default)
@@ -45,7 +47,7 @@ public class AuthUseCases : IAuthUseCases
         if (await _userRepository.ExistsByEmailAsync(dto.Email, cancellationToken))
             throw new ValidationException("Пользователь с таким email уже существует", new Dictionary<string, string[]> { ["Email"] = ["Пользователь с таким email уже существует"] });
 
-        var passwordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password);
+        var passwordHash = _passwordHasher.HashPassword(dto.Password);
         var user = _mapper.Map<User>(dto, opt => opt.Items["PasswordHash"] = passwordHash);
         
         var created = await _userRepository.AddAsync(user, cancellationToken);

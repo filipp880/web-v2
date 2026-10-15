@@ -11,7 +11,10 @@ public record TramTelemetryPointDto(
     double? GpsLatitude,
     double? GpsLongitude,
     double? GpsSpeed
-);
+)
+{
+    public double? DistanceMeters { get; init; }
+}
 
 public record CreateTelemetryPointDto(
     int SequenceNumber,

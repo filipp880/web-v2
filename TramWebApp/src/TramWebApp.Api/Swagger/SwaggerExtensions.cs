@@ -23,29 +23,14 @@ public static class SwaggerExtensions
 
             options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
             {
-                Description = "JWT Authorization header. Пример: \"Authorization: Bearer {token}\"",
+                Description = "Выполните POST /api/auth/login и вставьте accessToken без префикса Bearer.",
                 Name = "Authorization",
                 In = ParameterLocation.Header,
-                Type = SecuritySchemeType.ApiKey,
-                Scheme = "Bearer"
+                Type = SecuritySchemeType.Http,
+                Scheme = "bearer",
+                BearerFormat = "JWT"
             });
 
-            options.AddSecurityRequirement(new OpenApiSecurityRequirement
-            {
-                {
-                    new OpenApiSecurityScheme
-                    {
-                        Reference = new OpenApiReference
-                        {
-                            Type = ReferenceType.SecurityScheme,
-                            Id = "Bearer"
-                        }
-                    },
-                    Array.Empty<string>()
-                }
-            });
-
-            options.EnableAnnotations();
             options.OrderActionsBy(apiDesc => $"{apiDesc.ActionDescriptor.RouteValues["controller"]}_{apiDesc.HttpMethod}");
             
             options.TagActionsBy(apiDesc => new[] { apiDesc.GroupName ?? apiDesc.ActionDescriptor.RouteValues["controller"]?.ToString() ?? "Default" });
@@ -59,6 +44,7 @@ public static class SwaggerExtensions
             }
 
             options.SchemaFilter<EnumSchemaFilter>();
+            options.OperationFilter<OperationDescriptions>();
         });
 
         return services;

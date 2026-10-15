@@ -1,21 +1,22 @@
 // src/components/Layout.tsx
 
-import React, { ReactNode } from 'react';
-import { Outlet, Link, useLocation, NavLink } from 'react-router-dom';
+import { Outlet, Link, NavLink } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { useEffect, useState } from 'react';
+import { api } from '../services/api';
 
 export function Layout() {
   const { user, logout } = useAuth();
-  const location = useLocation();
+  const [inMemory, setInMemory] = useState(false);
+  useEffect(() => { void api.getStorageInfo().then(info => setInMemory(!info.persistent)).catch(() => {}); }, []);
 
   const navItems = [
     { path: '/runs', label: 'Прогоны', roles: ['User', 'Admin'] as const },
-    { path: '/model', label: 'Модель', roles: ['User', 'Admin'] as const },
     { path: '/history', label: 'История', roles: ['User', 'Admin'] as const },
   ];
 
   const filteredNavItems = navItems.filter(item => 
-    user && item.roles.includes(user.role)
+    user && item.roles.some(role => role === user.role)
   );
 
   return (
@@ -74,13 +75,14 @@ export function Layout() {
 
       <main className="main-content" role="main">
         <div className="container">
+          {inMemory && <p className="map-notice" role="status">Режим лабораторной 2: до 50 прогонов в памяти. Данные исчезнут после перезапуска сервера.</p>}
           <Outlet />
         </div>
       </main>
 
       <footer className="footer">
         <div className="container">
-          <p>TramWebApp - Система мониторинга трамвая &copy; 2024</p>
+          <p>TramWebApp · Мониторинг движения и анализ телеметрии</p>
         </div>
       </footer>
     </div>

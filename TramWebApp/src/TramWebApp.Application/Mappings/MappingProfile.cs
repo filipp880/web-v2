@@ -1,6 +1,7 @@
 namespace TramWebApp.Application.Mappings;
 
 using AutoMapper;
+using TramWebApp.Domain.Enums;
 using TramWebApp.Domain.Entities;
 using TramWebApp.Domain.ValueObjects;
 using TramWebApp.Application.DTOs;
@@ -14,7 +15,8 @@ public class MappingProfile : Profile
             .ForMember(dest => dest.InferencesCount, opt => opt.MapFrom(src => src.Inferences.Count));
 
         CreateMap<TramRun, TramRunListDto>()
-            .ForMember(dest => dest.TelemetryPointsCount, opt => opt.MapFrom(src => src.TelemetryPoints.Count));
+            .ForMember(dest => dest.TelemetryPointsCount, opt => opt.MapFrom(src => src.TelemetryPoints.Count))
+            .ForMember(dest => dest.InferencesCount, opt => opt.MapFrom(src => src.Inferences.Count));
 
         CreateMap<CreateTramRunDto, TramRun>()
             .ConstructUsing(src => new TramRun(src.Name, src.Description, Guid.Empty));

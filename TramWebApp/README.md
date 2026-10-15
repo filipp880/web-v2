@@ -1,5 +1,8 @@
 # TramWebApp - Система мониторинга трамвая
 
+Проверенные команды запуска и диагностики: [RUNNING.ru.md](RUNNING.ru.md).
+Сопоставление с заданиями ЛР2, ЛР3 и ЛР4, исправления и сценарий сдачи: [LABS-COMPLIANCE.ru.md](LABS-COMPLIANCE.ru.md).
+
 Веб-приложение для оценки продольной скорости и положения трамвая без GNSS и IMU, используя только положение ручки контроллера водителя и скорости передней/задней тележек.
 
 ## 🚀 Быстрый запуск
@@ -17,7 +20,7 @@ docker compose up --build -d
 - **Frontend**: http://localhost
 - **Backend API**: http://localhost:8080
 - **Swagger UI**: http://localhost:8080/swagger
-- **pgAdmin**: http://localhost:5050 (admin@tramwebapp.local / admin123)
+- **pgAdmin**: http://localhost:5050 (admin@example.com / admin123)
 
 ### Локальная разработка
 

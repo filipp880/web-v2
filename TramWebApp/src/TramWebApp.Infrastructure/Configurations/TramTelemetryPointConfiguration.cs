@@ -20,6 +20,7 @@ public class TramTelemetryPointConfiguration : IEntityTypeConfiguration<TramTele
         builder.Property(x => x.GpsLatitude).HasColumnName("gps_latitude");
         builder.Property(x => x.GpsLongitude).HasColumnName("gps_longitude");
         builder.Property(x => x.GpsSpeed).HasColumnName("gps_speed");
+        builder.Property(x => x.DistanceMeters).HasColumnName("distance_meters");
 
         builder.HasIndex(x => new { x.TramRunId, x.SequenceNumber }).IsUnique().HasDatabaseName("ix_tram_telemetry_run_sequence");
         builder.HasIndex(x => x.TramRunId).HasDatabaseName("ix_tram_telemetry_tram_run_id");

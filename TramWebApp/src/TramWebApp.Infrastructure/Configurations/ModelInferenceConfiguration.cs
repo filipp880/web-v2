@@ -30,5 +30,7 @@ public class ModelInferenceConfiguration : IEntityTypeConfiguration<ModelInferen
         builder.HasIndex(x => x.TramRunId).HasDatabaseName("ix_model_inferences_tram_run_id");
         builder.HasIndex(x => x.UserId).HasDatabaseName("ix_model_inferences_user_id");
         builder.HasIndex(x => x.InferenceTime).HasDatabaseName("ix_model_inferences_inference_time");
+        builder.HasOne<User>().WithMany().HasForeignKey(x => x.UserId)
+            .OnDelete(DeleteBehavior.SetNull).HasConstraintName("fk_model_inferences_users_user_id");
     }
 }

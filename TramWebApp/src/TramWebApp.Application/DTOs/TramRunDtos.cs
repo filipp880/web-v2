@@ -10,7 +10,10 @@ public record TramRunDto(
     bool IsActive,
     int TelemetryPointsCount,
     int InferencesCount
-);
+)
+{
+    public double[][] PlannedRoute { get; init; } = [];
+}
 
 public record CreateTramRunDto(
     string Name,
@@ -28,5 +31,6 @@ public record TramRunListDto(
     string Description,
     DateTime CreatedAt,
     bool IsActive,
-    int TelemetryPointsCount
+    int TelemetryPointsCount,
+    int InferencesCount
 );

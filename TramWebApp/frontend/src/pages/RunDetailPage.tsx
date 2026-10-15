@@ -1,11 +1,13 @@
 // src/pages/RunDetailPage.tsx
 
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { api } from '../services/api';
 import { useApi } from '../hooks/useApi';
+import { RouteMap } from '../components/RouteMap';
 import type { TramRun, TramTelemetryPoint } from '../types';
 import { format } from 'date-fns';
+import { ru } from 'date-fns/locale';
 
 export function RunDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -13,6 +15,7 @@ export function RunDetailPage() {
   const [run, setRun] = useState<TramRun | null>(null);
   const [telemetry, setTelemetry] = useState<TramTelemetryPoint[]>([]);
   const [activeTab, setActiveTab] = useState<'info' | 'telemetry' | 'map'>('info');
+  const [page, setPage] = useState(0);
 
   const { execute: loadRun, loading: loadingRun } = useApi(
     () => api.getTramRun(id!),
@@ -30,6 +33,14 @@ export function RunDetailPage() {
       loadTelemetry();
     }
   }, [id, loadRun, loadTelemetry]);
+
+  useEffect(() => {
+    if (!run?.description.startsWith('simulation:v1;')) return;
+    const timer = window.setInterval(() => {
+      if (!document.hidden) { void loadRun(); void loadTelemetry(); }
+    }, 3000);
+    return () => window.clearInterval(timer);
+  }, [id, run?.description, loadRun, loadTelemetry]);
 
   const handleBack = () => navigate('/runs');
 
@@ -67,10 +78,11 @@ export function RunDetailPage() {
           </button>
           <div>
             <h1 className="page-title">{run.name}</h1>
-            <p className="page-subtitle">{run.description || 'Без описания'}</p>
+            <p className="page-subtitle">{run.description.startsWith('simulation:v1;') ? 'Запись тренажёра · ' + (run.description.includes(';winter;') ? 'зимние рельсы' : 'сухие рельсы') : run.description || 'Без описания'}</p>
           </div>
         </div>
-        <div style={{ display: 'flex', gap: '0.5rem' }}>
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+          {!!run.plannedRoute?.length && <Link to={'/runs/' + run.id + '/drive'} className="btn btn-primary">{run.description.startsWith('simulation:v1;') ? 'Продолжить движение' : 'Управлять трамваем'}</Link>}
           <Link to={`/runs/${run.id}/model`} className="btn btn-primary">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
               <rect x="2" y="3" width="12" height="10" rx="2" stroke="currentColor" strokeWidth="1.5"/>
@@ -134,11 +146,11 @@ export function RunDetailPage() {
                 </div>
                 <div className="info-item">
                   <span className="info-label">Создан</span>
-                  <span className="info-value">{format(new Date(run.createdAt), 'PPpp', { locale: require('date-fns/locale/ru') })}</span>
+                  <span className="info-value">{format(new Date(run.createdAt), 'PPpp', { locale: ru })}</span>
                 </div>
                 <div className="info-item">
                   <span className="info-label">Обновлен</span>
-                  <span className="info-value">{run.updatedAt ? format(new Date(run.updatedAt), 'PPpp', { locale: require('date-fns/locale/ru') }) : '—'}</span>
+                  <span className="info-value">{run.updatedAt ? format(new Date(run.updatedAt), 'PPpp', { locale: ru }) : '—'}</span>
                 </div>
                 <div className="info-item">
                   <span className="info-label">Точек телеметрии</span>
@@ -166,7 +178,7 @@ export function RunDetailPage() {
                   <p className="empty-state-text">Добавьте точки телеметрии для этого прогона</p>
                 </div>
               ) : (
-                <div className="table-container">
+                <><div className="table-container table-scroll">
                   <table className="table table-striped" role="table">
                     <thead>
                       <tr>
@@ -181,7 +193,7 @@ export function RunDetailPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {telemetry.slice(0, 100).map(point => (
+                      {telemetry.slice(page * 25, page * 25 + 25).map(point => (
                         <tr key={point.id}>
                           <td>{point.sequenceNumber}</td>
                           <td>{point.timestamp.toFixed(1)}</td>
@@ -193,16 +205,9 @@ export function RunDetailPage() {
                           <td>{point.gpsSpeed?.toFixed(2) ?? '—'} м/с</td>
                         </tr>
                       ))}
-                      {telemetry.length > 100 && (
-                        <tr>
-                          <td colSpan={8} style={{ textAlign: 'center', color: '#6c757d' }}>
-                            Показано 100 из {telemetry.length} записей
-                          </td>
-                        </tr>
-                      )}
                     </tbody>
                   </table>
-                </div>
+                </div><div className="pagination"><span>{page * 25 + 1}–{Math.min(telemetry.length, page * 25 + 25)} из {telemetry.length}</span><button className="btn btn-outline btn-sm" disabled={page === 0} onClick={() => setPage(value => value - 1)}>Назад</button><button className="btn btn-outline btn-sm" disabled={(page + 1) * 25 >= telemetry.length} onClick={() => setPage(value => value + 1)}>Далее</button></div></>
               )}
             </div>
           )}
@@ -210,7 +215,7 @@ export function RunDetailPage() {
           {activeTab === 'map' && (
             <div>
               <div className="map-container" style={{ height: '400px', background: '#f0f0f0', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6c757d' }}>
-                <p>Карта трассы (требуется интеграция с Leaflet/MapLibre)</p>
+                <RouteMap telemetry={telemetry} plannedRoute={run.plannedRoute} />
               </div>
             </div>
           )}

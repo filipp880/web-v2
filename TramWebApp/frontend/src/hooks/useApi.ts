@@ -1,7 +1,6 @@
 // src/hooks/useApi.ts
 
-import { useState, useCallback } from 'react';
-import { api } from '../services/api';
+import { useState, useCallback, useRef } from 'react';
 import { useToast } from '../contexts/ToastContext';
 
 interface UseApiOptions<T> {
@@ -18,8 +17,11 @@ export function useApi<T, Args extends unknown[]>(
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const { showToast } = useToast();
+  const latest = useRef({ apiCall, options, showToast });
+  latest.current = { apiCall, options, showToast };
 
   const execute = useCallback(async (...args: Args): Promise<T | null> => {
+    const { apiCall, options, showToast } = latest.current;
     setLoading(true);
     setError(null);
     try {
@@ -42,7 +44,7 @@ export function useApi<T, Args extends unknown[]>(
     } finally {
       setLoading(false);
     }
-  }, [apiCall, options, showToast]);
+  }, []);
 
   return { execute, loading, error };
 }

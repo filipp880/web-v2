@@ -66,4 +66,9 @@ packages/
 *.tmp
 *.temp
 tmp/
+tram-area.osm
+tram-rails.json
+frontend/test-results/
+frontend/test-results-*/
+frontend/playwright-report/
 temp/

@@ -36,6 +36,9 @@ public class GlobalExceptionMiddleware
         {
             TramWebApp.Domain.Exceptions.EntityNotFoundException => (StatusCodes.Status404NotFound, "Не найдено", exception.Message),
             TramWebApp.Domain.Exceptions.InMemoryStorageLimitException => (StatusCodes.Status409Conflict, "Конфликт", exception.Message),
+            TramWebApp.Domain.Exceptions.ConflictException => (StatusCodes.Status409Conflict, "Конфликт", exception.Message),
+            Microsoft.EntityFrameworkCore.DbUpdateException dbException when dbException.InnerException is Npgsql.PostgresException { SqlState: "23505" } =>
+                (StatusCodes.Status409Conflict, "Конфликт", "Запись с таким уникальным ключом уже существует."),
             TramWebApp.Domain.Exceptions.InvalidModelInputException => (StatusCodes.Status400BadRequest, "Неверный запрос", exception.Message),
             TramWebApp.Domain.Exceptions.ModelInferenceException => (StatusCodes.Status500InternalServerError, "Ошибка модели", exception.Message),
             TramWebApp.Domain.Exceptions.UnauthorizedAccessException => (StatusCodes.Status403Forbidden, "Доступ запрещен", exception.Message),

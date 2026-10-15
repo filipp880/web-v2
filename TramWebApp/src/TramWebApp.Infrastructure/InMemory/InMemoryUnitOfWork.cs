@@ -11,9 +11,11 @@ public class InMemoryUnitOfWork : IUnitOfWork
 
     public InMemoryUnitOfWork(int maxRecords = 50)
     {
-        TramRuns = new InMemoryTramRunRepository(maxRecords);
-        TelemetryPoints = new InMemoryTelemetryRepository();
-        Inferences = new InMemoryModelInferenceRepository();
+        var runs = new InMemoryTramRunRepository(maxRecords);
+        var points = new InMemoryTelemetryRepository(runs);
+        var inferences = new InMemoryModelInferenceRepository(runs);
+        runs.DeleteChildren = async id => { await points.DeleteByRunAsync(id); await inferences.DeleteByRunAsync(id); };
+        TramRuns = runs; TelemetryPoints = points; Inferences = inferences;
         Users = new InMemoryUserRepository();
     }
 

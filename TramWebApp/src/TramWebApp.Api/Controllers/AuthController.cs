@@ -7,7 +7,6 @@ using TramWebApp.Application.Interfaces;
 
 [ApiController]
 [Route("api/auth")]
-[AllowAnonymous]
 public class AuthController : ControllerBase
 {
     private readonly IAuthUseCases _useCases;

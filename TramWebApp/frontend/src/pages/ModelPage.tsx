@@ -1,424 +1,157 @@
-// src/pages/ModelPage.tsx
-
-import React, { useEffect, useState, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useParams } from 'react-router-dom';
+import { Chart, registerables } from 'chart.js';
 import { api } from '../services/api';
-import { useApi } from '../hooks/useApi';
-import type { TramRun, TramTelemetryPoint, ModelInput, ModelOutput, MetricsSnapshot, ModelInferenceListItem, InferenceRequest } from '../types';
-import { Chart, registerables, ChartConfiguration } from 'chart.js';
-import 'chartjs-adapter-date-fns';
-
+import { useToast } from '../contexts/ToastContext';
+import { RouteMap } from '../components/RouteMap';
+import { ManualControls, type EditableSignals } from '../components/ManualControls';
+import { formatNumber as number, integrateTelemetry, toModelInput } from '../utils/telemetry';
+import type { ModelInference, ModelInferenceListItem, ModelOutput, TramRun, TramTelemetryPoint } from '../types';
 Chart.register(...registerables);
 
 export function ModelPage() {
   const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
+  const { showToast } = useToast();
   const [run, setRun] = useState<TramRun | null>(null);
   const [telemetry, setTelemetry] = useState<TramTelemetryPoint[]>([]);
+  const [outputs, setOutputs] = useState<ModelOutput[]>([]);
+  const [baselineOutputs, setBaselineOutputs] = useState<ModelOutput[]>([]);
+  const [overrides, setOverrides] = useState<Record<number, Partial<EditableSignals>>>({});
+  const [manualValid, setManualValid] = useState(true);
+  const [editVersion, setEditVersion] = useState(0);
+  const [predictionFor, setPredictionFor] = useState<TramTelemetryPoint[] | null>(null);
+  const [predictionError, setPredictionError] = useState(false);
+  const [predictionRetry, setPredictionRetry] = useState(0);
+  const scenario = useMemo(() => Object.keys(overrides).length ? telemetry.map(point => ({ ...point, ...overrides[point.sequenceNumber] })) : telemetry, [telemetry, overrides]);
+  const recalculating = predictionFor !== scenario;
+  const [inferences, setInferences] = useState<ModelInferenceListItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const [retry, setRetry] = useState(0);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [playSpeed, setPlaySpeed] = useState(1);
-  const [modelOutput, setModelOutput] = useState<ModelOutput | null>(null);
-  const [metrics, setMetrics] = useState<MetricsSnapshot | null>(null);
-  const [inferences, setInferences] = useState<ModelInferenceListItem[]>([]);
-  const [userAdjustedSpeed, setUserAdjustedSpeed] = useState<number | null>(null);
-  const [userAdjustedPosition, setUserAdjustedPosition] = useState<number | null>(null);
-  const [showIntervention, setShowIntervention] = useState(false);
-  const [lastInferenceId, setLastInferenceId] = useState<string | null>(null);
-  
-  const speedChartRef = useRef<HTMLCanvasElement>(null);
-  const positionChartRef = useRef<HTMLCanvasElement>(null);
-  const mapRef = useRef<HTMLDivElement>(null);
-  const animationRef = useRef<number>();
-
-  const { execute: loadRun, loading: loadingRun } = useApi(
-    () => api.getTramRun(id!),
-    { onSuccess: setRun, errorMessage: 'Не удалось загрузить прогон' }
-  );
-
-  const { execute: loadTelemetry, loading: loadingTelemetry } = useApi(
-    () => api.getTelemetry(id!),
-    { onSuccess: setTelemetry, errorMessage: 'Не удалось загрузить телеметрию' }
-  );
-
-  const { execute: loadInferences, loading: loadingInferences } = useApi(
-    () => api.getInferencesByRun(id!),
-    { onSuccess: setInferences }
-  );
-
-  const { execute: runInference } = useApi(
-    (request: InferenceRequest) => api.runInference(request),
-    { 
-      onSuccess: (inference) => {
-        setLastInferenceId(inference.id);
-        setShowIntervention(true);
-      },
-      errorMessage: 'Ошибка запуска модели'
-    }
-  );
-
-  const { execute: submitIntervention } = useApi(
-    (data: { id: string; speed: number; position: number }) => 
-      api.userIntervention(data.id, { adjustedSpeed: data.speed, adjustedPosition: data.position }),
-    { 
-      successMessage: 'Вмешательство записано',
-      onSuccess: () => { setShowIntervention(false); loadInferences(); }
-    }
-  );
-
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState<{ index: number; inference: ModelInference } | null>(null);
+  const [adjustedSpeed, setAdjustedSpeed] = useState('');
+  const [adjustedPosition, setAdjustedPosition] = useState('');
+  const speedCanvas = useRef<HTMLCanvasElement>(null);
+  const positionCanvas = useRef<HTMLCanvasElement>(null);
+  const saveLock = useRef(false);
+  const generation = useRef(0);
   useEffect(() => {
-    if (id) {
-      loadRun();
-      loadTelemetry();
-      loadInferences();
+    let cancelled = false;
+    generation.current += 1;
+    setLoading(true); setLoadError(false); setIsPlaying(false); setCurrentIndex(0); setSaved(null);
+    setOutputs([]); setTelemetry([]);
+    setOverrides({}); setManualValid(true); setPredictionFor(null); setPredictionError(false);
+    async function load() {
+      try {
+        if (!id) throw new Error('Missing run');
+        const [details, points, history] = await Promise.all([api.getTramRun(id), api.getTelemetry(id), api.getInferencesByRun(id)]);
+        points.sort((a, b) => a.sequenceNumber - b.sequenceNumber);
+        const predictions = points.length ? await api.predictBatch(points.map(toModelInput)) : [];
+        if (cancelled) return;
+        setRun(details); setTelemetry(points); setOutputs(predictions); setBaselineOutputs(predictions); setPredictionFor(points); setInferences(history);
+      } catch { if (!cancelled) setLoadError(true); }
+      finally { if (!cancelled) setLoading(false); }
     }
-  }, [id, loadRun, loadTelemetry, loadInferences]);
-
-  const currentPoint = telemetry[currentIndex];
-
-  const handlePredict = async () => {
-    if (!currentPoint) return;
-    
-    const input: ModelInput = {
-      controllerHandlePosition: currentPoint.controllerHandlePosition,
-      frontBogieSpeed: currentPoint.frontBogieSpeed,
-      rearBogieSpeed: currentPoint.rearBogieSpeed,
-      timestamp: currentPoint.timestamp,
-      gpsLatitude: currentPoint.gpsLatitude ?? undefined,
-      gpsLongitude: currentPoint.gpsLongitude ?? undefined,
-      gpsSpeed: currentPoint.gpsSpeed ?? undefined,
-    };
-
-    const request: InferenceRequest = {
-      tramRunId: id!,
-      sequenceNumber: currentPoint.sequenceNumber,
-      input,
-    };
-
-    await runInference(request);
-  };
-
-  const handleInterventionSubmit = () => {
-    if (!lastInferenceId || userAdjustedSpeed === null || userAdjustedPosition === null) return;
-    submitIntervention({ id: lastInferenceId, speed: userAdjustedSpeed, position: userAdjustedPosition });
-    setUserAdjustedSpeed(null);
-    setUserAdjustedPosition(null);
-  };
-
-  const togglePlay = () => {
-    if (isPlaying) {
-      setIsPlaying(false);
-      if (animationRef.current) cancelAnimationFrame(animationRef.current);
-    } else {
-      setIsPlaying(true);
-      animate();
-    }
-  };
-
-  const animate = () => {
-    if (!isPlaying || currentIndex >= telemetry.length - 1) {
-      setIsPlaying(false);
-      return;
-    }
-    
-    setCurrentIndex(prev => prev + 1);
-    const delay = 1000 / playSpeed;
-    animationRef.current = setTimeout(animate, delay);
-  };
-
-  const stepForward = () => {
-    if (currentIndex < telemetry.length - 1) {
-      setCurrentIndex(prev => prev + 1);
-    }
-  };
-
-  const stepBackward = () => {
-    if (currentIndex > 0) {
-      setCurrentIndex(prev => prev - 1);
-    }
-  };
-
-  const reset = () => {
-    setIsPlaying(false);
-    if (animationRef.current) cancelAnimationFrame(animationRef.current);
-    setCurrentIndex(0);
-    setModelOutput(null);
-    setMetrics(null);
-    setLastInferenceId(null);
-    setShowIntervention(false);
-  };
-
+    void load();
+    return () => { cancelled = true; };
+  }, [id, retry]);
   useEffect(() => {
-    if (currentPoint) {
-      handlePredict();
-    }
-    return () => {
-      if (animationRef.current) cancelAnimationFrame(animationRef.current);
-    };
-  }, [currentIndex]);
-
-  return (
-    <div>
-      <div className="page-header">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-          <button className="btn btn-outline" onClick={() => navigate(`/runs/${id}`)} aria-label="Назад">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-              <path d="M10 4L6 8l4 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-            К прогонам
-          </button>
-          <div>
-            <h1 className="page-title">Модель: {run?.name || 'Загрузка...'}</h1>
-            <p className="page-subtitle">Интерактивное тестирование модели оценки скорости и положения</p>
-          </div>
-        </div>
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 400px', gap: '1.5rem' }}>
-        <div>
-          <div className="card" style={{ marginBottom: '1.5rem' }}>
-            <div className="card-header">
-              <h3>Управление воспроизведением</h3>
-            </div>
-            <div className="card-body">
-              <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
-                <button className="btn btn-outline" onClick={stepBackward} disabled={currentIndex === 0} aria-label="Предыдущий шаг">
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                    <path d="M10 4L6 8l4 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                    <rect x="9" y="4" width="2" height="8" fill="currentColor"/>
-                  </svg>
-                </button>
-                
-                <button className={`btn ${isPlaying ? 'btn-warning' : 'btn-success'}`} onClick={togglePlay} aria-label={isPlaying ? 'Пауза' : 'Воспроизведение'}>
-                  {isPlaying ? (
-                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-                      <rect x="4" y="3" width="3" height="10" rx="0.5"/>
-                      <rect x="9" y="3" width="3" height="10" rx="0.5"/>
-                    </svg>
-                  ) : (
-                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-                      <path d="M5 3v10l8 5V3z"/>
-                    </svg>
-                  )}
-                </button>
-                
-                <button className="btn btn-outline" onClick={stepForward} disabled={currentIndex >= telemetry.length - 1} aria-label="Следующий шаг">
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                    <path d="M6 4l4 4-4 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                    <rect x="5" y="4" width="2" height="8" fill="currentColor"/>
-                  </svg>
-                </button>
-
-                <div style={{ flex: 1, minWidth: '150px' }}>
-                  <label className="form-label" style={{ marginBottom: '0.25rem', display: 'block' }}>
-                    Шаг: {currentIndex + 1} / {telemetry.length}
-                  </label>
-                  <input
-                    type="range"
-                    min="0"
-                    max={telemetry.length - 1}
-                    value={currentIndex}
-                    onChange={e => { setCurrentIndex(Number(e.target.value)); setIsPlaying(false); }}
-                    className="form-control"
-                    style={{ cursor: 'pointer' }}
-                    aria-label="Текущий шаг"
-                  />
-                </div>
-
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <span style={{ fontSize: '0.875rem', color: '#6c757d' }}>Скорость:</span>
-                  <select value={playSpeed} onChange={e => setPlaySpeed(Number(e.target.value))} className="form-control" style={{ width: 'auto' }}>
-                    <option value={0.5}>0.5x</option>
-                    <option value={1}>1x</option>
-                    <option value={2}>2x</option>
-                    <option value={5}>5x</option>
-                  </select>
-                </div>
-
-                <button className="btn btn-outline" onClick={reset} disabled={loadingRun}>
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                    <path d="M13.5 2.5a8 8 0 11-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                    <path d="M2.5 2.5v5h5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                  </svg>
-                  Сброс
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
-            <div className="card">
-              <div className="card-header">
-                <h3>График скорости (м/с)</h3>
-              </div>
-              <div className="card-body" style={{ height: '300px' }}>
-                <canvas ref={speedChartRef} aria-label="График скорости"></canvas>
-              </div>
-            </div>
-
-            <div className="card">
-              <div className="card-header">
-                <h3>График положения (м)</h3>
-              </div>
-              <div className="card-body" style={{ height: '300px' }}>
-                <canvas ref={positionChartRef} aria-label="График положения"></canvas>
-              </div>
-            </div>
-          </div>
-
-          <div className="card">
-            <div className="card-header">
-              <h3>2D Карта трассы</h3>
-            </div>
-            <div className="card-body" style={{ height: '350px' }}>
-              <div ref={mapRef} style={{ width: '100%', height: '100%', borderRadius: '8px', background: '#f8f9fa', border: '1px dashed var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6c757d' }}>
-                Мини-карта (Leaflet интеграция)
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div>
-          <div className="card" style={{ marginBottom: '1.5rem' }}>
-            <div className="card-header">
-              <h3>Текущие метрики</h3>
-            </div>
-            <div className="card-body">
-              {currentPoint && (
-                <div className="metrics-grid">
-                  <div className="metric-card">
-                    <span className="metric-label">Ручка контроллера</span>
-                    <span className="metric-value">{currentPoint.controllerHandlePosition.toFixed(2)}</span>
-                    <div className="metric-bar">
-                      <div className="metric-bar-fill" style={{ width: `${((currentPoint.controllerHandlePosition + 1) / 2) * 100}%` }}></div>
-                    </div>
-                  </div>
-                  
-                  <div className="metric-card">
-                    <span className="metric-label">Пред. скорость</span>
-                    <span className="metric-value text-primary">{modelOutput?.predictedSpeed.toFixed(2) ?? '—'} м/с</span>
-                  </div>
-                  
-                  <div className="metric-card">
-                    <span className="metric-label">Пред. положение</span>
-                    <span className="metric-value text-primary">{modelOutput?.predictedPosition.toFixed(1) ?? '—'} м</span>
-                  </div>
-
-                  {currentPoint.gpsSpeed !== null && (
-                    <div className="metric-card">
-                      <span className="metric-label">Эталонная скорость</span>
-                      <span className="metric-value text-success">{currentPoint.gpsSpeed.toFixed(2)} м/с</span>
-                    </div>
-                  )}
-
-                  {metrics && (
-                    <>
-                      <div className="metric-card">
-                        <span className="metric-label">Ошибка скорости</span>
-                        <span className="metric-value text-danger">{metrics.speedError.toFixed(2)} м/с</span>
-                      </div>
-                      <div className="metric-card">
-                        <span className="metric-label">Ошибка положения</span>
-                        <span className="metric-value text-danger">{metrics.positionError.toFixed(1)} м</span>
-                      </div>
-                    </>
-                  )}
-                </div>
-              )}
-
-              {showIntervention && lastInferenceId && (
-                <div className="intervention-panel" style={{ marginTop: '1.5rem', padding: '1rem', background: '#fff3cd', border: '1px solid #ffc107', borderRadius: '8px' }}>
-                  <h4 style={{ marginBottom: '1rem', color: '#856404' }}>Вмешательство оператора</h4>
-                  <p style={{ marginBottom: '1rem', fontSize: '0.875rem', color: '#664d03' }}>
-                    Модель предсказала: {modelOutput?.predictedSpeed.toFixed(2)} м/с, {modelOutput?.predictedPosition.toFixed(1)} м.
-                    Введите скорректированные значения при необходимости.
-                  </p>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                    <div className="form-group">
-                      <label className="form-label">Скорр. скорость (м/с)</label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        className="form-control"
-                        value={userAdjustedSpeed ?? ''}
-                        onChange={e => setUserAdjustedSpeed(e.target.value ? parseFloat(e.target.value) : null)}
-                        placeholder={modelOutput?.predictedSpeed.toFixed(2)}
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label className="form-label">Скорр. положение (м)</label>
-                      <input
-                        type="number"
-                        step="0.1"
-                        min="0"
-                        className="form-control"
-                        value={userAdjustedPosition ?? ''}
-                        onChange={e => setUserAdjustedPosition(e.target.value ? parseFloat(e.target.value) : null)}
-                        placeholder={modelOutput?.predictedPosition.toFixed(1)}
-                      />
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
-                    <button className="btn btn-primary" onClick={handleInterventionSubmit} disabled={userAdjustedSpeed === null || userAdjustedPosition === null}>
-                      Сохранить вмешательство
-                    </button>
-                    <button className="btn btn-outline" onClick={() => setShowIntervention(false)}>
-                      Отмена
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="card">
-            <div className="card-header">
-              <h3>История инференсов</h3>
-            </div>
-            <div className="card-body">
-              {loadingInferences ? (
-                <div style={{ textAlign: 'center', padding: '2rem' }}>
-                  <span className="spinner"></span>
-                </div>
-              ) : inferences.length === 0 ? (
-                <div className="empty-state" style={{ padding: '2rem' }}>
-                  <p>История пуста. Запустите модель для записи инференсов.</p>
-                </div>
-              ) : (
-                <div className="table-container" style={{ maxHeight: '300px', overflow: 'auto' }}>
-                  <table className="table table-striped" style={{ fontSize: '0.8125rem' }}>
-                    <thead>
-                      <tr>
-                        <th scope="col">Время</th>
-                        <th scope="col">Пред. скорость</th>
-                        <th scope="col">Пред. положение</th>
-                        <th scope="col">Ошибка скорости</th>
-                        <th scope="col">Вмешательство</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {inferences.slice().reverse().slice(0, 20).map(inf => (
-                        <tr key={inf.id} style={{ backgroundColor: inf.isUserIntervention ? '#fff3cd' : '' }}>
-                          <td>{new Date(inf.inferenceTime).toLocaleTimeString('ru-RU')}</td>
-                          <td>{inf.predictedSpeed.toFixed(2)}</td>
-                          <td>{inf.predictedPosition.toFixed(1)}</td>
-                          <td>{inf.errorSpeed?.toFixed(2) ?? '—'}</td>
-                          <td>
-                            {inf.isUserIntervention && (
-                              <span className="badge badge-warning">Да</span>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+    if (loading || !scenario.length || predictionFor === scenario) return;
+    let cancelled = false;
+    setPredictionError(false);
+    const timer = window.setTimeout(() => {
+      void api.predictBatch(scenario.map(toModelInput)).then(predictions => {
+        if (!cancelled) { setOutputs(predictions); setPredictionFor(scenario); }
+      }).catch(() => { if (!cancelled) setPredictionError(true); });
+    }, 180);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [scenario, loading, predictionFor, predictionRetry]);
+  const distances = useMemo(() => integrateTelemetry(scenario, outputs), [scenario, outputs]);
+  const referenceDistances = useMemo(() => integrateTelemetry(telemetry), [telemetry]);
+  const currentPoint = scenario[currentIndex];
+  const output = outputs[currentIndex];
+  const gpsSpeed = currentPoint?.gpsSpeed;
+  const speedError = gpsSpeed != null && output ? Math.abs(output.predictedSpeed - gpsSpeed) : null;
+  useEffect(() => {
+    if (!isPlaying || saving || recalculating || !manualValid) return;
+    if (currentIndex >= telemetry.length - 1) { setIsPlaying(false); return; }
+    const interval = Math.max(0.05, telemetry[currentIndex + 1].timestamp - telemetry[currentIndex].timestamp);
+    const timer = window.setTimeout(() => setCurrentIndex(index => index + 1), interval * 1000 / playSpeed);
+    return () => window.clearTimeout(timer);
+  }, [isPlaying, currentIndex, telemetry, playSpeed, saving, recalculating, manualValid]);
+  useEffect(() => {
+    if (loading || !telemetry.length || !speedCanvas.current || !positionCanvas.current) return;
+    const points = scenario.slice(0, currentIndex + 1);
+    const values = (get: (point: TramTelemetryPoint, index: number) => number | null | undefined) => points.map((point, index) => ({ x: point.timestamp, y: get(point, index) ?? null }));
+    const options = { responsive: true, maintainAspectRatio: false, animation: false as const,
+      plugins: { legend: { position: 'bottom' as const, labels: { boxWidth: 12, usePointStyle: true } } },
+      scales: { x: { type: 'linear' as const, min: 0, max: telemetry[telemetry.length - 1].timestamp || 1, title: { display: true, text: 'Время, с' } }, y: { beginAtZero: true } } };
+    const speedChart = new Chart(speedCanvas.current, { type: 'line', options, data: { datasets: [
+      { label: 'Модель', data: values((_, index) => outputs[index]?.predictedSpeed), borderColor: '#2563eb', pointRadius: 0, borderWidth: 2 },
+      ...(Object.keys(overrides).length ? [{ label: 'Исходная модель', data: values((_, index) => baselineOutputs[index]?.predictedSpeed), borderColor: '#94a3b8', pointRadius: 0, borderWidth: 1, borderDash: [4, 4] }] : []),
+      { label: 'Передняя тележка', data: values(point => point.frontBogieSpeed), borderColor: '#0d9488', pointRadius: 0, borderWidth: 1.5 },
+      { label: 'GPS', data: values(point => point.gpsSpeed), borderColor: '#d97706', pointRadius: 3, showLine: false },
+    ] } });
+    const positionChart = new Chart(positionCanvas.current, { type: 'line', options, data: { datasets: [
+      { label: 'Модель', data: values((_, index) => distances[index]), borderColor: '#2563eb', pointRadius: 0, borderWidth: 2 },
+      { label: 'По тележкам', data: values((_, index) => referenceDistances[index]), borderColor: '#0d9488', pointRadius: 0, borderWidth: 1.5, borderDash: [4, 4] },
+    ] } });
+    return () => { speedChart.destroy(); positionChart.destroy(); };
+  }, [loading, telemetry, scenario, outputs, currentIndex, distances, referenceDistances, overrides, baselineOutputs]);
+  function changeSignals(patch: Partial<EditableSignals>) {
+    if (saving) return;
+    setIsPlaying(false); setSaved(null); setAdjustedSpeed(''); setAdjustedPosition('');
+    setOverrides(previous => ({ ...previous, [currentPoint.sequenceNumber]: { ...previous[currentPoint.sequenceNumber], ...patch } }));
+  }
+  function resetSignals(all = false) {
+    setIsPlaying(false); setSaved(null); setManualValid(true); setEditVersion(value => value + 1);
+    setAdjustedSpeed(''); setAdjustedPosition('');
+    setOverrides(previous => { if (all) return {}; const next = { ...previous }; delete next[currentPoint.sequenceNumber]; return next; });
+  }
+  function seek(index: number) {
+    setIsPlaying(false); setCurrentIndex(Math.max(0, Math.min(telemetry.length - 1, index)));
+    setSaved(null); setAdjustedSpeed(''); setAdjustedPosition('');
+    setManualValid(true);
+  }
+  async function saveResult(intervene = false) {
+    if (!id || !currentPoint || !output || saveLock.current || recalculating || !manualValid) return;
+    const speed = Number(adjustedSpeed), distance = Number(adjustedPosition);
+    if (intervene && (adjustedSpeed.trim() === '' || adjustedPosition.trim() === '' || !Number.isFinite(speed) || !Number.isFinite(distance) || speed < 0 || distance < 0)) { showToast('error', 'Введите неотрицательные скорость и положение.'); return; }
+    const requestGeneration = generation.current;
+    saveLock.current = true; setSaving(true); setIsPlaying(false);
+    try {
+      let inference = saved?.index === currentIndex ? saved.inference : await api.runInference({ tramRunId: id, sequenceNumber: currentPoint.sequenceNumber, input: toModelInput(currentPoint), scenarioInputs: Object.keys(overrides).length ? scenario.slice(0, currentIndex + 1).map(toModelInput) : undefined });
+      if (requestGeneration !== generation.current) return;
+      setSaved({ index: currentIndex, inference });
+      if (intervene) inference = await api.userIntervention(inference.id, { adjustedSpeed: speed, adjustedPosition: distance });
+      if (requestGeneration !== generation.current) return;
+      setSaved({ index: currentIndex, inference });
+      setInferences(previous => [...previous.filter(item => item.id !== inference.id), inference]);
+      showToast('success', intervene ? 'Корректировка сохранена в истории' : 'Результат сохранён в истории');
+    } catch { if (requestGeneration === generation.current) showToast('error', 'Не удалось сохранить результат. Попробуйте ещё раз.'); }
+    finally { saveLock.current = false; setSaving(false); }
+  }
+  if (loading) return <div className="card state-panel" role="status"><span className="spinner" /><h2>Подготовка прогона</h2><p>Загружаем телеметрию и рассчитываем модель…</p></div>;
+  if (loadError || !run) return <div className="card state-panel" role="alert"><h2>Не удалось открыть прогон</h2><p>Проверьте подключение и доступ к данным.</p><button className="btn btn-primary" onClick={() => setRetry(value => value + 1)}>Повторить</button><Link to="/runs">К списку прогонов</Link></div>;
+  if (!telemetry.length) return <div className="card state-panel"><h2>Нет телеметрии</h2><p>Для воспроизведения нужны точки этого прогона.</p><Link className="btn btn-primary" to={'/runs/' + id}>Открыть прогон</Link></div>;
+  return <div className="model-page">
+    <div className="page-header"><div><Link className="back-link" to={'/runs/' + id}>← К прогону</Link><p className="eyebrow">Анализ движения · демонстрационная модель</p><h1 className="page-title">{run.name}</h1><p className="page-subtitle">Телеметрия, маршрут и оценка движения на одной временной шкале</p></div><span className="badge badge-success">{isPlaying ? 'Воспроизведение' : 'Готов к анализу'}</span></div>
+    <section className="card playback-card" aria-label="Управление воспроизведением"><div className="section-heading"><h2>Управление воспроизведением</h2><span className="text-muted">{number(currentPoint.timestamp, 1)} / {number(telemetry[telemetry.length - 1].timestamp, 1)} с</span></div>
+      <div className="playback-controls"><div className="transport-buttons"><button className="btn btn-outline icon-button" onClick={() => seek(currentIndex - 1)} disabled={!currentIndex || saving} aria-label="Предыдущий шаг">‹</button><button className="btn btn-primary play-button" disabled={saving || recalculating || !manualValid} onClick={() => { if (currentIndex === telemetry.length - 1) seek(0); setIsPlaying(value => !value); }} aria-label={isPlaying ? 'Пауза' : 'Воспроизведение'}>{isPlaying ? 'Ⅱ Пауза' : '▶ Смотреть'}</button><button className="btn btn-outline icon-button" onClick={() => seek(currentIndex + 1)} disabled={currentIndex === telemetry.length - 1 || saving} aria-label="Следующий шаг">›</button></div>
+      <div className="timeline"><label htmlFor="timeline">Шаг: {currentIndex + 1} / {telemetry.length}</label><input id="timeline" aria-label="Текущий шаг" type="range" min={0} max={telemetry.length - 1} value={currentIndex} disabled={saving} onChange={event => seek(Number(event.target.value))} /></div><label className="speed-select">Скорость<select aria-label="Скорость воспроизведения" value={playSpeed} onChange={event => setPlaySpeed(Number(event.target.value))} className="form-control"><option value={0.5}>0,5×</option><option value={1}>1×</option><option value={2}>2×</option><option value={5}>5×</option></select></label><button className="btn btn-outline" disabled={saving} onClick={() => seek(0)}>Сброс</button></div><p className="helper-text">Просмотр не создаёт записи в истории. Сохраните нужный результат отдельно.</p>
+    </section>
+    <div className="drive-banner"><div><strong>Хотите управлять движением?</strong><p>В тренажёре ручка удерживается, есть инерция и зимнее сцепление. Телеметрия записывается в БД автоматически.</p></div><Link className="btn btn-primary" to={'/runs/' + id + '/drive'}>Управлять трамваем →</Link></div>
+    <ManualControls key={currentIndex + ':' + editVersion} point={currentPoint} disabled={saving} changed={!!overrides[currentPoint.sequenceNumber]} onChange={changeSignals} onValidity={setManualValid} onReset={() => resetSignals()} />
+    <div className="scenario-status" role="status"><span>{predictionError ? 'Не удалось пересчитать сценарий.' : recalculating ? 'Пересчитываем модель…' : Object.keys(overrides).length ? 'Сценарий рассчитан · изменено шагов: ' + Object.keys(overrides).length : 'Показаны исходные данные прогона'}</span><div>{predictionError && <button className="btn btn-outline btn-sm" onClick={() => setPredictionRetry(value => value + 1)}>Повторить расчёт</button>}{Object.keys(overrides).length > 0 && <button className="btn btn-outline btn-sm" disabled={saving} onClick={() => resetSignals(true)}>Сбросить все правки</button>}</div></div>
+    <div className="model-grid"><div className="analysis-column"><div className="charts-grid"><section className="card"><div className="card-header"><h2>Скорость <span className="unit">м/с</span></h2></div><div className="chart-body"><canvas ref={speedCanvas} aria-label="График скорости" /></div></section><section className="card"><div className="card-header"><h2>Пройденный путь <span className="unit">м</span></h2></div><div className="chart-body"><canvas ref={positionCanvas} aria-label="График положения" /></div></section></div><section className="card"><div className="card-header"><h2>Маршрут и положение трамвая</h2></div><div className="route-map-panel"><RouteMap distanceMeters={distances[currentIndex]} telemetry={scenario} currentPoint={currentPoint} plannedRoute={run.plannedRoute} /></div></section></div>
+    <aside className="metrics-column"><section className="card"><div className="card-header"><h2>Текущий шаг <span className="unit">{currentIndex + 1}</span></h2></div><div className="card-body"><div className="metrics-grid">
+      <div className="metric-card"><span className="metric-label">Скорость модели</span><strong className="metric-value">{number(output?.predictedSpeed)} <small>м/с</small></strong></div><div className="metric-card"><span className="metric-label">Пройденный путь</span><strong className="metric-value">{number(distances[currentIndex], 1)} <small>м</small></strong></div><div className="metric-card"><span className="metric-label">Ручка контроллера</span><strong className="metric-value">{number(currentPoint.controllerHandlePosition)}</strong></div><div className="metric-card"><span className="metric-label">Скорость GPS</span><strong className="metric-value" data-testid="gps-speed">{number(gpsSpeed)}{gpsSpeed != null && <small> м/с</small>}</strong></div><div className="metric-card"><span className="metric-label">Ошибка скорости</span><strong className="metric-value">{number(speedError)}{speedError != null && <small> м/с</small>}</strong></div><div className="metric-card"><span className="metric-label">Задняя тележка</span><strong className="metric-value">{number(currentPoint.rearBogieSpeed)} <small>м/с</small></strong></div></div>
+      {gpsSpeed == null && <p className="helper-text gps-status">GPS недоступен на этом шаге. Оценка модели и движение по маршруту продолжаются.</p>}<button className="btn btn-primary w-100" disabled={saving || recalculating || !manualValid || saved?.index === currentIndex} onClick={() => void saveResult()}>{saving ? 'Сохраняем…' : saved?.index === currentIndex ? '✓ Результат сохранён' : 'Сохранить результат'}</button>
+      <details className="intervention-panel"><summary>Корректировка оператора</summary><p className="helper-text">Укажите уточнённые значения для выбранного шага.</p><label className="form-label" htmlFor="adjusted-speed">Скорость, м/с</label><input id="adjusted-speed" className="form-control" type="number" min="0" step="0.01" disabled={saving} value={adjustedSpeed} onChange={event => setAdjustedSpeed(event.target.value)} /><label className="form-label" htmlFor="adjusted-position">Пройденный путь, м</label><input id="adjusted-position" className="form-control" type="number" min="0" step="0.1" disabled={saving} value={adjustedPosition} onChange={event => setAdjustedPosition(event.target.value)} /><button className="btn btn-outline w-100" disabled={saving || recalculating || !manualValid} onClick={() => void saveResult(true)}>Сохранить корректировку</button></details>
+    </div></section><section className="card"><div className="card-header"><h2>Сохранённые результаты <span className="unit">{inferences.length}</span></h2></div><div className="card-body"><p className="helper-text">История сохраняется между сеансами.</p><Link to="/history" className="back-link">Открыть историю →</Link></div></section></aside></div>
+  </div>;
 }

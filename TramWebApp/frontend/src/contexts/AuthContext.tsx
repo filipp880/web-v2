@@ -1,6 +1,6 @@
 // src/contexts/AuthContext.tsx
 
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { api } from '../services/api';
 import type { User, LoginRequest, RegisterRequest } from '../types';
 
@@ -46,7 +46,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const register = async (data: RegisterRequest) => {
     await api.register(data);
-    await refreshProfile();
   };
 
   const logout = () => {

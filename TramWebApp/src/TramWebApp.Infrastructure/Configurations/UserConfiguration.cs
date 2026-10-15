@@ -25,7 +25,7 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
         builder.HasIndex(x => x.Role).HasDatabaseName("ix_users_role");
 
         builder.HasMany(x => x.CreatedRuns)
-            .WithOne(x => x.CreatedByUser)
+            .WithOne()
             .HasForeignKey(x => x.CreatedByUserId)
             .OnDelete(DeleteBehavior.Restrict);
 

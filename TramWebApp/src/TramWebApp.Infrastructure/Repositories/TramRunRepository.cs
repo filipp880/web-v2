@@ -19,6 +19,8 @@ public class TramRunRepository : ITramRunRepository
         return await _context.TramRuns
             .Include(x => x.TelemetryPoints)
             .Include(x => x.Inferences)
+            .AsSplitQuery()
+            .AsNoTracking()
             .FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
     }
 
@@ -27,6 +29,7 @@ public class TramRunRepository : ITramRunRepository
         return await _context.TramRuns
             .Include(x => x.TelemetryPoints)
             .Include(x => x.Inferences)
+            .AsSplitQuery()
             .AsNoTracking()
             .ToListAsync(cancellationToken);
     }
@@ -37,6 +40,7 @@ public class TramRunRepository : ITramRunRepository
             .Include(x => x.TelemetryPoints)
             .Include(x => x.Inferences)
             .Where(x => x.CreatedByUserId == userId)
+            .AsSplitQuery()
             .AsNoTracking()
             .ToListAsync(cancellationToken);
     }

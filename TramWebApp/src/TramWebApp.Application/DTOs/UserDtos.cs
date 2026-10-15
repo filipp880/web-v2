@@ -1,3 +1,5 @@
+using TramWebApp.Domain.Enums;
+
 namespace TramWebApp.Application.DTOs;
 
 public record UserDto(

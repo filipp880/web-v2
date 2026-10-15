@@ -23,6 +23,8 @@ public class InvalidModelInputException : DomainException
     public InvalidModelInputException(string message) : base(message) { }
 }
 
+public class ConflictException(string message) : DomainException(message);
+
 public class ModelInferenceException : DomainException
 {
     public ModelInferenceException(string message) : base(message) { }

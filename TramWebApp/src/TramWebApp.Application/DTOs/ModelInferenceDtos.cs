@@ -69,5 +69,6 @@ public record InferenceRequestDto(
     int SequenceNumber,
     ModelInputDto Input,
     double? UserAdjustedSpeed = null,
-    double? UserAdjustedPosition = null
+    double? UserAdjustedPosition = null,
+    IReadOnlyList<ModelInputDto>? ScenarioInputs = null
 );

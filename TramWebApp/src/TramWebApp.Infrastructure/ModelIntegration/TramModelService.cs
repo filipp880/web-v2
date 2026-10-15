@@ -6,7 +6,7 @@ using TramWebApp.Domain.ValueObjects;
 public class TramModelService : IModelService
 {
     private readonly double[] _modelWeights;
-    private readonly double _wheelScaleFactor;
+    private double _wheelScaleFactor;
     private bool _isLoaded = false;
 
     public TramModelService()
@@ -33,9 +33,18 @@ public class TramModelService : IModelService
     public Task<IReadOnlyList<ModelOutput>> PredictBatchAsync(IEnumerable<ModelInput> inputs, CancellationToken cancellationToken = default)
     {
         var results = new List<ModelOutput>();
+        double distance = 0;
+        double? previousTime = null;
+        double previousSpeed = 0;
         foreach (var input in inputs)
         {
-            results.Add(PredictAsync(input, cancellationToken).Result);
+            cancellationToken.ThrowIfCancellationRequested();
+            var speed = CalculateSpeed(input);
+            if (previousTime.HasValue)
+                distance += (previousSpeed + speed) / 2 * Math.Max(0, input.Timestamp - previousTime.Value);
+            results.Add(new ModelOutput(speed, distance, input.Timestamp, 0.95));
+            previousTime = input.Timestamp;
+            previousSpeed = speed;
         }
         return Task.FromResult<IReadOnlyList<ModelOutput>>(results);
     }

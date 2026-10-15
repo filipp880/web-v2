@@ -4,7 +4,6 @@ import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useApi } from '../hooks/useApi';
-import { api } from '../services/api';
 import type { LoginRequest } from '../types';
 
 export function LoginPage() {

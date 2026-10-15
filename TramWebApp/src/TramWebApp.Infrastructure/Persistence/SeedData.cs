@@ -5,9 +5,36 @@ using TramWebApp.Domain.Enums;
 using TramWebApp.Domain.ValueObjects;
 using TramWebApp.Infrastructure.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using TramWebApp.Domain.Interfaces;
 
 public static class SeedData
 {
+    public static async Task InitializeInMemoryAsync(IServiceProvider services)
+    {
+        var unitOfWork = services.GetRequiredService<IUnitOfWork>();
+        if (await unitOfWork.Users.ExistsByUsernameAsync("admin")) return;
+        var hasher = services.GetRequiredService<IPasswordHasher>();
+        var admin = new User("admin", "admin@tramwebapp.local", hasher.HashPassword("admin123"), UserRole.Admin);
+        var user = new User("operator", "operator@tramwebapp.local", hasher.HashPassword("user123"), UserRole.User);
+        await unitOfWork.Users.AddAsync(admin);
+        await unitOfWork.Users.AddAsync(user);
+        var model = services.GetRequiredService<IModelService>();
+        var random = new Random(42);
+        foreach (var name in new[] { "Кольцевая линия", "Радиальный маршрут", "Городской центр" })
+        {
+            var run = new TramRun(name, "Демонстрационный прогон", admin.Id);
+            await unitOfWork.TramRuns.AddAsync(run);
+            var points = GenerateTelemetryPoints(run.Id, name, random);
+            DemoRoutes.Apply(run, points);
+            await unitOfWork.TelemetryPoints.AddRangeAsync(points);
+            foreach (var inference in GenerateInferences(run.Id, points, model, admin.Id, user.Id, random))
+            {
+                await unitOfWork.Inferences.AddAsync(inference);
+            }
+        }
+    }
+
     public static async Task InitializeAsync(IServiceProvider serviceProvider)
     {
         using var scope = serviceProvider.CreateScope();
@@ -15,7 +42,16 @@ public static class SeedData
         var passwordHasher = scope.ServiceProvider.GetRequiredService<IPasswordHasher>();
 
         if (await context.Users.AnyAsync())
+        {
+            // Upgrade only the original demo runs, keeping IDs, users and inference history.
+            var demos = await context.TramRuns.Include(run => run.TelemetryPoints)
+                .Where(run => run.PlannedRouteJson == "[]" &&
+                    (run.Name == "Тестовый прогон 1 - Кольцевая линия" || run.Name == "Тестовый прогон 2 - Радиальный маршрут" || run.Name == "Тестовый прогон 3 - Городской центр"))
+                .ToListAsync();
+            foreach (var demo in demos) DemoRoutes.Apply(demo, demo.TelemetryPoints);
+            await context.SaveChangesAsync();
             return;
+        }
 
         var adminPasswordHash = passwordHasher.HashPassword("admin123");
         var userPasswordHash = passwordHasher.HashPassword("user123");
@@ -42,6 +78,7 @@ public static class SeedData
         foreach (var run in runs)
         {
             var points = GenerateTelemetryPoints(run.Id, run.Name, random);
+            DemoRoutes.Apply(run, points);
             allTelemetryPoints.AddRange(points);
         }
 
@@ -151,7 +188,7 @@ public static class SeedData
                 output.PredictedSpeed,
                 output.PredictedPosition,
                 point.GpsSpeed,
-                point.GpsLatitude.HasValue ? positionFromCoords(point.GpsLatitude.Value, point.GpsLongitude.Value ?? 37.62) : null,
+                point.GpsLatitude.HasValue ? positionFromCoords(point.GpsLatitude.Value, point.GpsLongitude ?? 37.62) : null,
                 isUserIntervention);
 
             if (isUserIntervention)
@@ -163,7 +200,7 @@ public static class SeedData
 
             if (point.GpsSpeed.HasValue)
             {
-                inference.SetActualValues(point.GpsSpeed.Value, positionFromCoords(point.GpsLatitude.Value, point.GpsLongitude.Value ?? 37.62));
+                inference.SetActualValues(point.GpsSpeed.Value, positionFromCoords(point.GpsLatitude ?? 55.75, point.GpsLongitude ?? 37.62));
             }
 
             inferences.Add(inference);
